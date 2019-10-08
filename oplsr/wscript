@@ -1,0 +1,37 @@
+## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+def build(bld):
+    module = bld.create_ns3_module('oplsr', ['internet', 'flow-monitor', 'aodv', 'wifi', 'dsr', 'olsr', 'netanim'])
+    module.includes = '.'
+    module.source = [
+        'model/oplsr-header.cc',
+        'model/oplsr-state.cc',
+        'model/oplsr-routing-protocol.cc',
+        'helper/oplsr-helper.cc',
+        ]
+
+    module_test = bld.create_ns3_module_test_library('oplsr')
+    module_test.source = [
+        'test/bug780-test.cc',
+        'test/hello-regression-test.cc',
+        'test/oplsr-header-test-suite.cc',
+        'test/regression-test-suite.cc',
+        'test/oplsr-routing-protocol-test-suite.cc',
+        'test/tc-regression-test.cc',
+        ]
+
+    headers = bld(features='ns3header')
+    headers.module = 'oplsr'
+    headers.source = [
+        'model/oplsr-routing-protocol.h',
+        'model/oplsr-header.h',
+        'model/oplsr-state.h',
+        'model/oplsr-repositories.h',
+        'helper/oplsr-helper.h',
+        ]
+
+
+    if bld.env['ENABLE_EXAMPLES']:
+        bld.recurse('examples')
+
+    bld.ns3_python_bindings()

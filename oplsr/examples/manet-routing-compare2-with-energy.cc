@@ -76,14 +76,16 @@
 #include "ns3/oplsr-module.h"
 #include "ns3/dsdv-module.h"
 #include "ns3/dsr-module.h"
+#include "ns3/energy-module.h"
 #include "ns3/applications-module.h"
 #include "ns3/flow-monitor-module.h"
 #include "ns3/yans-wifi-helper.h"
+#include "ns3/wifi-radio-energy-model-helper.h"
 
 using namespace ns3;
 using namespace dsr;
 
-NS_LOG_COMPONENT_DEFINE ("manet-routing-compare");
+NS_LOG_COMPONENT_DEFINE ("manet-routing-compare-with-energy");
 
 class RoutingExperiment
 {
@@ -102,6 +104,7 @@ private:
   uint32_t port;
   uint32_t bytesTotal;
   uint32_t packetsReceived;
+  DeviceEnergyModelContainer deviceModels;
 
   std::string m_CSVfileName;
   int m_nSinks;
@@ -161,17 +164,39 @@ RoutingExperiment::CheckThroughput ()
 
   std::ofstream out (m_CSVfileName.c_str (), std::ios::app);
 
+  double total_energyConsumed = 0.0;
+  for (DeviceEnergyModelContainer::Iterator iter = deviceModels.Begin (); iter != deviceModels.End (); iter ++)
+    {
+      total_energyConsumed += (*iter)->GetTotalEnergyConsumption ();
+    }
   out << (Simulator::Now ()).GetSeconds () << ","
       << kbs << ","
       << packetsReceived << ","
       << m_nSinks << ","
       << m_protocolName << ","
-      << m_txp << ""
+      << m_txp << ","
+      << total_energyConsumed << ""
       << std::endl;
 
   out.close ();
   packetsReceived = 0;
   Simulator::Schedule (Seconds (1.0), &RoutingExperiment::CheckThroughput, this);
+}
+
+/// Trace function for remaining energy at node.
+void
+RemainingEnergy (double oldValue, double remainingEnergy)
+{
+  NS_LOG_UNCOND (Simulator::Now ().GetSeconds ()
+                 << "s Current remaining energy = " << remainingEnergy << "J");
+}
+
+/// Trace function for total energy consumption at node.
+void
+TotalEnergy (double oldValue, double totalEnergy)
+{
+  NS_LOG_UNCOND (Simulator::Now ().GetSeconds ()
+                 << "s Total energy consumed by radio = " << totalEnergy << "J");
 }
 
 Ptr<Socket>
@@ -210,11 +235,12 @@ main (int argc, char *argv[])
   "PacketsReceived," <<
   "NumberOfSinks," <<
   "RoutingProtocol," <<
-  "TransmissionPower" <<
+  "TransmissionPower," <<
+  "TotalEnergyConsumed" <<
   std::endl;
   out.close ();
 
-  int nSinks = 10;
+  int nSinks = 3; // 10
   double txp = 7.5;
 
   experiment.Run (nSinks, txp, CSVfileName);
@@ -228,9 +254,9 @@ RoutingExperiment::Run (int nSinks, double txp, std::string CSVfileName)
   m_txp = txp;
   m_CSVfileName = CSVfileName;
 
-  int nWifis = 50;
+  int nWifis = 5; // 50
 
-  double TotalTime = 200.0;
+  double TotalTime = 20.0; // 200
   std::string rate ("2048bps");
   std::string phyMode ("DsssRate11Mbps");
   std::string tr_name ("manet-routing-compare");
@@ -293,9 +319,38 @@ RoutingExperiment::Run (int nSinks, double txp, std::string CSVfileName)
   streamIndex += mobilityAdhoc.AssignStreams (adhocNodes, streamIndex);
   NS_UNUSED (streamIndex); // From this point, streamIndex is unused
 
+  /** Energy Model **/
+  /***************************************************************************/
+  /* energy source */
+  BasicEnergySourceHelper basicSourceHelper;
+  // configure energy source
+  basicSourceHelper.Set ("BasicEnergySourceInitialEnergyJ", DoubleValue (1.0)); // 0.1
+  // install source
+  EnergySourceContainer sources = basicSourceHelper.Install (adhocNodes);
+  /* device energy model */
+  WifiRadioEnergyModelHelper radioEnergyHelper;
+  // configure radio energy model
+  radioEnergyHelper.Set ("TxCurrentA", DoubleValue (0.174)); // 0.0174
+  // install device model
+  deviceModels = radioEnergyHelper.Install (adhocDevices, sources);
+  /***************************************************************************/
+
+  /** connect trace sources **/
+  /***************************************************************************/
+  // all sources are connected to node 1
+  // energy source
+  Ptr<BasicEnergySource> basicSourcePtr = DynamicCast<BasicEnergySource> (sources.Get (1));
+  basicSourcePtr->TraceConnectWithoutContext ("RemainingEnergy", MakeCallback (&RemainingEnergy));
+  // device energy model
+  Ptr<DeviceEnergyModel> basicRadioModelPtr =
+    basicSourcePtr->FindDeviceEnergyModels ("ns3::WifiRadioEnergyModel").Get (0);
+  NS_ASSERT (basicRadioModelPtr != NULL);
+  basicRadioModelPtr->TraceConnectWithoutContext ("TotalEnergyConsumption", MakeCallback (&TotalEnergy));
+  /***************************************************************************/
+
   AodvHelper aodv;
   OlsrHelper olsr;
-  OplsrHelper oplsr;
+  OplsrHelper oplsr(deviceModels);
   DsdvHelper dsdv;
   DsrHelper dsr;
   DsrMainHelper dsrMain;
@@ -356,9 +411,9 @@ RoutingExperiment::Run (int nSinks, double txp, std::string CSVfileName)
       AddressValue remoteAddress (InetSocketAddress (adhocInterfaces.GetAddress (i), port));
       onoff1.SetAttribute ("Remote", remoteAddress);
 
-      Ptr<UniformRandomVariable> var = CreateObject<UniformRandomVariable> ();
       ApplicationContainer temp = onoff1.Install (adhocNodes.Get (i + nSinks));
-      temp.Start (Seconds (var->GetValue (100.0,101.0)));
+      Ptr<UniformRandomVariable> var = CreateObject<UniformRandomVariable> ();
+      temp.Start (Seconds (var->GetValue (5.0,6.0))); // 100, 101
       temp.Stop (Seconds (TotalTime));
     }
 
@@ -397,6 +452,14 @@ RoutingExperiment::Run (int nSinks, double txp, std::string CSVfileName)
 
   Simulator::Stop (Seconds (TotalTime));
   Simulator::Run ();
+
+  for (DeviceEnergyModelContainer::Iterator iter = deviceModels.Begin (); iter != deviceModels.End (); iter ++)
+    {
+      double energyConsumed = (*iter)->GetTotalEnergyConsumption ();
+      NS_LOG_UNCOND ("End of simulation (" << Simulator::Now ().GetSeconds ()
+                     << "s) Total energy consumed by radio = " << energyConsumed << "J");
+      NS_ASSERT (energyConsumed <= 0.1);
+    }
 
   flowmon->SerializeToXmlFile ((tr_name + ".flowmon").c_str(), false, false);
 

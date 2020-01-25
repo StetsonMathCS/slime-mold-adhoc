@@ -23,12 +23,14 @@
 #include "ns3/names.h"
 #include "ns3/ptr.h"
 #include "ns3/ipv4-list-routing.h"
+#include "ns3/energy-module.h"
 
 namespace ns3 {
 
-OplsrHelper::OplsrHelper ()
+OplsrHelper::OplsrHelper (const DeviceEnergyModelContainer &d)
 {
   m_agentFactory.SetTypeId ("ns3::oplsr::RoutingProtocol");
+  m_deviceEnergyModelContainer = std::move(d);
 }
 
 OplsrHelper::OplsrHelper (const OplsrHelper &o)
@@ -65,6 +67,7 @@ Ptr<Ipv4RoutingProtocol>
 OplsrHelper::Create (Ptr<Node> node) const
 {
   Ptr<oplsr::RoutingProtocol> agent = m_agentFactory.Create<oplsr::RoutingProtocol> ();
+  agent->setDeviceEnergyModelContainer(m_deviceEnergyModelContainer);
 
   std::map<Ptr<Node>, std::set<uint32_t> >::const_iterator it = m_interfaceExclusions.find (node);
 

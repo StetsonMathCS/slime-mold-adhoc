@@ -24,6 +24,7 @@
 #include "ns3/node.h"
 #include "ns3/node-container.h"
 #include "ns3/ipv4-routing-helper.h"
+#include "ns3/energy-module.h"
 #include <map>
 #include <set>
 
@@ -44,7 +45,7 @@ public:
    * Create an OplsrHelper that makes life easier for people who want to install
    * OPLSR routing to nodes.
    */
-  OplsrHelper ();
+  OplsrHelper (const DeviceEnergyModelContainer &);
 
   /**
    * \brief Construct an OplsrHelper from another previously initialized instance
@@ -105,6 +106,7 @@ private:
    */
   OplsrHelper &operator = (const OplsrHelper &);
   ObjectFactory m_agentFactory; //!< Object factory
+  DeviceEnergyModelContainer m_deviceEnergyModelContainer;
 
   std::map< Ptr<Node>, std::set<uint32_t> > m_interfaceExclusions; //!< container of interfaces excluded from OPLSR operations
 };

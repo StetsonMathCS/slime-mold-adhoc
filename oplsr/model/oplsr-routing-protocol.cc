@@ -48,6 +48,7 @@
 #include "ns3/trace-source-accessor.h"
 #include "ns3/ipv4-header.h"
 #include "ns3/ipv4-packet-info-tag.h"
+#include "ns3/energy-module.h"
 
 #include <random>
 
@@ -198,6 +199,7 @@ RoutingProtocol::GetTypeId (void)
 
 RoutingProtocol::RoutingProtocol ()
   : m_routingTableAssociation (0),
+  m_packets_received (0),
   m_packets_sent (0),
   m_ipv4 (0),
   m_helloTimer (Timer::CANCEL_ON_DESTROY),
@@ -213,6 +215,12 @@ RoutingProtocol::RoutingProtocol ()
 
 RoutingProtocol::~RoutingProtocol ()
 {
+}
+
+void
+RoutingProtocol::setDeviceEnergyModelContainer(const DeviceEnergyModelContainer &d)
+{
+  m_deviceEnergyModelContainer = std::move(d);
 }
 
 void
@@ -413,6 +421,8 @@ RoutingProtocol::RecvOplsr (Ptr<Socket> socket)
   Ptr<Packet> receivedPacket;
   Address sourceAddress;
   receivedPacket = socket->RecvFrom (sourceAddress);
+
+  m_packets_received++;
 
   Ipv4PacketInfoTag interfaceInfo;
   if (!receivedPacket->RemovePacketTag (interfaceInfo))
@@ -963,18 +973,6 @@ RoutingProtocol::RoutingTableComputation ()
   // 1. All the entries from the routing table are removed.
   Clear ();
 
-  int bandwidth = 0;
-  int distance = 0;
-  int will;
-  const NeighborSet &neighborSetTmp = m_state.GetNeighbors ();
-  for (NeighborSet::const_iterator it = neighborSetTmp.begin ();
-       it != neighborSetTmp.end (); it++)
-    {
-      bandwidth++;
-    }
-  distance = 100 - bandwidth;
-  m_willingness = (m_packets_sent * bandwidth) / distance;
-
   // 2. The new routing entries are added starting with the
   // symmetric neighbors (h=1) as the destination nodes.
   const NeighborSet &neighborSet = m_state.GetNeighbors ();
@@ -1280,6 +1278,41 @@ RoutingProtocol::RoutingTableComputation ()
 
   NS_LOG_DEBUG ("Node " << m_mainAddress << ": RoutingTableComputation end.");
   m_routingTableChanged (GetSize ());
+
+  // 6. Recompute willingness based on slime mold algorithm
+  NS_LOG_DEBUG("Node " << m_mainAddress << ": Recomputing willingness based on slime mold algorithm.");
+  int sum_dist = 0;
+  int destAddr_count = 0;
+  const TopologySet &topology = m_state.GetTopologySet ();
+  for (TopologySet::const_iterator it = topology.begin ();
+       it != topology.end (); it++)
+    {
+      const TopologyTuple &topology_tuple = *it;
+      NS_LOG_LOGIC ("Looking at topology tuple: " << topology_tuple);
+      destAddr_count++;
+
+      RoutingTableEntry destAddrEntry;
+      bool have_destAddrEntry = Lookup (topology_tuple.destAddr, destAddrEntry);
+      if(have_destAddrEntry) {
+        sum_dist += destAddrEntry.distance;
+      }
+    }
+  if(destAddr_count > 0) {
+      double avg_dist = sum_dist / destAddr_count; 
+
+      // define bandwidth as count of neighborset
+      int bandwidth = 0;
+      const NeighborSet &neighborSetTmp = m_state.GetNeighbors ();
+      for (NeighborSet::const_iterator it = neighborSetTmp.begin ();
+              it != neighborSetTmp.end (); it++)
+      {
+          bandwidth++;
+      }
+      int pressure_differential = m_packets_sent - m_packets_received;
+      int potential = bandwidth * pressure_differential;
+      m_willingness = (int)(potential * avg_dist);
+      NS_LOG_INFO("New willingness: " << m_willingness);
+  }
 }
 
 

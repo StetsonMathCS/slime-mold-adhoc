@@ -39,6 +39,7 @@
 #include "ns3/ipv4.h"
 #include "ns3/ipv4-routing-protocol.h"
 #include "ns3/ipv4-static-routing.h"
+#include "ns3/energy-module.h"
 
 #include <vector>
 #include <map>
@@ -94,6 +95,8 @@ public:
   RoutingProtocol ();
   virtual ~RoutingProtocol ();
 
+  void setDeviceEnergyModelContainer(const DeviceEnergyModelContainer&);
+
   /**
    * \brief Set the OPLSR main address to the first address on the indicated interface.
    *
@@ -142,7 +145,9 @@ public:
 private:
   std::set<uint32_t> m_interfaceExclusions; //!< Set of interfaces excluded by OSLR.
   Ptr<Ipv4StaticRouting> m_routingTableAssociation; //!< Associations from an Ipv4StaticRouting instance
+  int m_packets_received;
   int m_packets_sent;
+  DeviceEnergyModelContainer m_deviceEnergyModelContainer;
 
 public:
   /**
